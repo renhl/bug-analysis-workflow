@@ -1,0 +1,23 @@
+# Bug Analysis Workflow 依赖
+
+# 核心依赖
+httpx>=0.24.0
+pyyaml>=6.0
+tree-sitter>=0.20.0
+
+# 语言解析器（可选，按需安装）
+# tree-sitter-java>=0.20.0
+# tree-sitter-go>=0.20.0
+# tree-sitter-typescript>=0.20.0
+
+# 阿里云 SDK（可选）
+# aliyun-log-python-sdk>=0.8.0
+
+# 数据库（可选）
+# pymysql>=1.0.0
+# psycopg2-binary>=2.9.0
+
+# 开发依赖
+pytest>=7.0.0
+black>=23.0.0
+mypy>=1.0.0

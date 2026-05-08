@@ -1,0 +1,89 @@
+# 服务注册表配置模板
+# 请根据你的实际服务修改
+
+services:
+  # ====================================
+  # 后端服务示例
+  # ====================================
+  
+  - name: order-service
+    # 仓库地址：可以是 Git URL 或本地路径
+    repo_url: git@github.com:your-org/order-service.git
+    # repo_url: /home/user/projects/order-service  # 本地路径
+    
+    # 主要语言
+    language: java
+    
+    # 业务关键词（用于问题路由）
+    keywords:
+      - 订单
+      - 下单
+      - 取消订单
+      - 订单状态
+      - order
+    
+    # 依赖的其他服务
+    dependencies:
+      - payment-service
+      - inventory-service
+      - user-service
+    
+    # 涉及的数据库表
+    db_tables:
+      - orders
+      - order_items
+    
+    # API 端点（可选）
+    api_endpoints:
+      - /api/orders
+      - /api/orders/{id}
+  
+  - name: payment-service
+    repo_url: git@github.com:your-org/payment-service.git
+    language: java
+    keywords:
+      - 支付
+      - 付款
+      - 退款
+      - payment
+    dependencies:
+      - order-service
+    db_tables:
+      - payments
+      - payment_logs
+  
+  - name: inventory-service
+    repo_url: git@github.com:your-org/inventory-service.git
+    language: go
+    keywords:
+      - 库存
+      - 扣库存
+      - inventory
+    dependencies: []
+    db_tables:
+      - inventory
+      - inventory_logs
+  
+  # ====================================
+  # 前端项目示例
+  # ====================================
+  
+  - name: web-frontend
+    repo_url: git@github.com:your-org/web-frontend.git
+    language: typescript
+    keywords:
+      - 页面
+      - 前端
+      - UI
+      - 显示
+      - 按钮
+    dependencies: []
+    db_tables: []
+  
+  # ====================================
+  # 最简配置示例（只需要必填字段）
+  # ====================================
+  
+  # - name: user-service
+  #   repo_url: git@github.com:your-org/user-service.git
+  #   keywords: [用户, 登录]
