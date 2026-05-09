@@ -4,7 +4,7 @@
 
 import re
 from typing import List, Dict, Optional
-from .models import RouteResult, AnalysisRequest, ServiceRegistry
+from .models import RouteResult, AnalysisRequest
 from .registry import ServiceRegistry
 
 

@@ -5,7 +5,7 @@
 import httpx
 from typing import List, Optional, Dict
 from datetime import datetime
-from ..models import LogEvent
+from core.models import LogEvent
 
 
 class AliyunSLSConnector:

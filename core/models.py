@@ -159,9 +159,9 @@ class ServiceInfo:
     repo_url: str                  # 仓库地址
     language: str                  # 语言: java
     keywords: List[str]            # 业务关键词
-    dependencies: List[str]        # 依赖的服务
-    db_tables: List[str]           # 数据库表
-    api_endpoints: List[str]       # API 端点
+    dependencies: List[str] = field(default_factory=list)        # 依赖的服务
+    db_tables: List[str] = field(default_factory=list)           # 数据库表
+    api_endpoints: List[str] = field(default_factory=list)       # API 端点
     
     # 可选
     team: Optional[str] = None
