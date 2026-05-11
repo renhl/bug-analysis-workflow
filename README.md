@@ -174,15 +174,6 @@ bug-analysis-workflow/
     └── implementation_guide.md
 ```
 
-## 实现计划
-
-| Phase | 内容 | 时间 |
-|-------|------|------|
-| Phase 1 | MVP: Java + 堆栈分析 + 阿里云日志 | 3周 |
-| Phase 2 | Go/TS 支持 + 数据链分析 | 2周 |
-| Phase 3 | WeKnora 集成 + 逻辑推理 | 2周 |
-| Phase 4 | 自动化 + CI/CD 集成 | 1周 |
-
 ## 依赖
 
 - Python 3.10+
