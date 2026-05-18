@@ -1,0 +1,90 @@
+# ============================================================
+# go_member 域 — 服务/仓库注册表
+#
+# 格式与全局 config/services.yaml.example 完全兼容。
+# 此文件只注册属于 go_member 业务域的服务，不影响其他域。
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # 会员主服务
+  # ----------------------------------------------------------
+  - name: go_member
+    # 仓库地址：Git URL 或本地路径均可
+    repo_url: https://code.qschou.com/health/go_member.git
+    local_path: /Users/renhongliang/Downloads/开发代码库/go_member
+    language: go
+
+    keywords:
+      - 会员
+      - member
+      - Member
+      - MemberType
+      - memberType
+      - 代扣
+      - withhold
+      - 敏感城市
+      - sensitive
+      - WeComFree
+      - WeComFreeUpgrade
+      - 跳转
+      - redirect
+      - ReturnUrl
+      - 支付
+      - 支付成功
+      - 支付失败
+      - 回调
+      - callback
+      - 支付单
+      - 订单
+      - 开通
+      - 未开通
+      - 权益
+      - 派发
+
+    dependencies: []
+
+    db_tables:
+      - member
+      - member_info
+      - withhold_task
+      - member_order
+
+    api_endpoints:
+      - /api/member/buy
+      - /api/member/receive
+      - /api/member/check
+
+  # ----------------------------------------------------------
+  # 团险会员服务（同域内互相调用）
+  # ----------------------------------------------------------
+  - name: go_equity_package
+    repo_url: https://code.qschou.com/health/go_equity_package.git
+    local_path: ~/dev-workspace/go_equity_package
+    language: go
+
+    keywords:
+      - 团险
+      - equity
+      - 权益包
+      - 保险
+      - 签约
+      - 代扣
+      - withhold
+      - 支付
+      - 回调
+      - callback
+
+    dependencies:
+      - go_member
+
+    db_tables:
+      - equity_package
+      - package_order
+      - package_entrust
+
+    api_endpoints:
+      - /api/equity/buy
+      - /api/equity/callback
+      - /api/equity/check

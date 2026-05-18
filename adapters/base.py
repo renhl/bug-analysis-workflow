@@ -2,12 +2,16 @@
 语言适配器基类 - 多语言 AST 解析抽象
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.models import CodeModel, FileModel, FunctionModel, ClassModel
+from core.constants import FILE_SKIP_PATTERNS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -133,20 +137,31 @@ class LanguageAdapter(ABC):
                         ))
                         
                 except Exception as e:
-                    # 解析失败，跳过
-                    print(f"Parse error: {file_path}: {e}")
+                    logger.warning("Parse error: %s: %s", file_path, e)
                     continue
         
-        # 反向填充 called_by
+        # 反向填充 called_by（先建索引，O(n) 查找替代 O(n^5) 嵌套循环）
+        func_index: Dict[str, List] = {}
+        for file in files:
+            for func in file.functions:
+                func_index.setdefault(func.name, []).append(func)
+
         for file in files:
             for func in file.functions:
                 caller_name = self._get_full_func_name(func.name, Path(repo_path) / func.file)
                 for called in func.calls:
-                    # 找到被调用的函数，记录调用者
-                    for f in files:
-                        for f_func in f.functions:
-                            if called in f_func.name or f_func.name in called:
-                                f_func.called_by.append(caller_name)
+                    # 精确匹配优先
+                    if called in func_index:
+                        for target in func_index[called]:
+                            if caller_name not in target.called_by:
+                                target.called_by.append(caller_name)
+                    else:
+                        # 降级：子串匹配（保留向后兼容）
+                        for f in files:
+                            for f_func in f.functions:
+                                if called in f_func.name or f_func.name in called:
+                                    if caller_name not in f_func.called_by:
+                                        f_func.called_by.append(caller_name)
         
         return CodeModel(
             language=self.get_language(),
@@ -169,12 +184,7 @@ class LanguageAdapter(ABC):
     
     def _should_skip(self, file_path: Path) -> bool:
         """判断是否应该跳过该文件"""
-        skip_patterns = [
-            'test', 'Test', '_test', 'spec', 'Spec',
-            'config', 'Config', 'conf',
-            'vendor', 'node_modules', 'target', 'build'
-        ]
-        return any(p in str(file_path) for p in skip_patterns)
+        return any(p in str(file_path) for p in FILE_SKIP_PATTERNS)
     
     @abstractmethod
     def _get_full_func_name(self, func_name: str, file_path: Path) -> str:

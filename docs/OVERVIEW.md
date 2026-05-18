@@ -1,174 +1,265 @@
 # 项目总览
 
-本文档提供 bug-analysis-workflow 的整体概览。
+`bug-analysis-workflow` 是一套面向工程现场的 Bug 根因分析框架。它把用户输入的报错、日志、traceId、数据异常或业务偏差，转成稳定的 `AnalysisResult`。
 
-## 核心设计
+当前推荐使用方式是 **CLI 先跑，skill 深挖**：
 
-### 问题类型分类
+1. `cli_analyze.py` 负责快速分类、路由、外部证据拉取和兼容 JSON 输出。
+2. `skills/BUG_ANALYZER.md` 负责低置信度或复杂问题的人工级证据链分析。
+
+- `problem_type`
+- `root_cause`
+- `code_locations`
+- `fix_suggestion`
+- `confidence`
+
+流程可以持续优化，但输出核心字段保持兼容，便于 CLI、AI skill、上层自动化工具复用。
+
+## 设计原则
+
+1. **先分类，再取证**：堆栈、日志、数据异常、逻辑偏差和基础设施问题走不同深度。
+2. **证据优先**：没有代码证据时不输出确定性代码根因。
+3. **证据源保留**：SLS、MySQL、WeKnora 是正式证据源；有配置时必须参与分析，不可用时才降级。
+4. **输出稳定**：新增输入参数和内部上下文，不破坏现有 JSON 字段。
+5. **域隔离**：会员、订单、支付等业务域各自维护服务、关键词、表和规则。
+
+## 问题类型
+
+当前与 `core.models.ProblemType` 对齐：
 
 ```
-Type A: 显性错误（有明确信号）
-├─ A1: 有堆栈 → 直接定位
-└─ A2: 有ERROR日志 → 需分析
+Type A: 显性错误
+├─ A1 stack_trace      有堆栈、文件、行号
+└─ A2 error_log        有错误日志、错误码、失败消息
 
-Type B: 隐性异常（数据/业务）
-├─ B1: 数据异常 → 数据链分析
-└─ B2: 业务异常 → 对照规则
+Type B: 状态/业务异常
+├─ B1 data_anomaly     数据状态不一致
+└─ B2 business_anomaly 业务状态、配置或上下游异常
 
-Type C: 逻辑偏差（结果不对）
-└─ C1: 需要推理 → Agent分析
+Type C: 逻辑偏差
+└─ C1 logic_error      预期行为和实际行为不一致
 ```
 
-### 核心流程
+基础设施错误不会新增输出枚举，当前保持兼容地映射为 `error_log`，修复建议会明确走网络、DNS、证书、网关、下游健康检查。
+
+## 总流程
 
 ```
-1. 路由确定仓库
-   ├─ 有traceId → 日志路由(置信度0.95)
-   ├─ 关键词匹配 → 关键词路由(置信度0.7)
-   └─ 知识库查询 → KB路由(置信度0.85)
-   └─ 合并结果 → 如果<0.5询问用户
-
-2. 预处理
-   ├─ 代码解析 → AST + 调用图
-   ├─ 日志获取 → 阿里云SLS
-   └─ 问题分类 → A/B/C
-
-3. 知识增强
-   └─ WeKnora搜索历史案例 → 如果匹配直接返回
-
-4. 分析引擎
-   ├─ Type A → 堆栈解析器
-   ├─ Type B → 数据链解析器
-   └─ Type C → 逻辑推理解析器
-
-5. 结果验证
-   └─ 验证代码位置存在 + 行号在函数范围
-
-6. 知识闭环
-   └─ 保存为新案例 → 知识库越来越强
+AnalysisRequest
+  │
+  ▼
+Phase 0 输入归一化
+  ├─ error_desc
+  ├─ domain / repo_path
+  ├─ trace_id / time_range
+  ├─ expected_behavior / actual_behavior
+  └─ changed_files / base_branch
+  │
+  ▼
+Phase 1 轻量分类
+  ├─ 文本堆栈识别
+  ├─ 基础设施短路
+  ├─ 数据异常关键词
+  └─ 逻辑偏差关键词
+  │
+  ▼
+Phase 2 路由定位
+  ├─ 显式 repo_path 优先
+  ├─ domain 限定服务集合
+  ├─ traceId 日志路由
+  ├─ 关键词路由
+  └─ WeKnora 知识路由
+  │
+  ▼
+Phase 3 证据采集
+  ├─ 代码解析
+  ├─ crash line 上下文
+  ├─ 调用链 / 数据流
+  ├─ 日志 / DB / 历史案例
+  └─ git diff / changed files
+  │
+  ▼
+Phase 4 分析引擎
+  ├─ AI API
+  ├─ skill context fallback
+  └─ low-confidence fallback
+  │
+  ▼
+Phase 5 验证与沉淀
+  ├─ code location verification
+  ├─ confidence gate
+  └─ optional case upload
 ```
 
-## 文件结构
+## 目录结构
 
 ```
 bug-analysis-workflow/
-├── README.md              # 项目说明
-├── requirements.txt       # 依赖
-├── .gitignore
+├── README.md
+├── cli_analyze.py              # CLI 入口
+├── setup.py
+├── requirements.txt
 │
-├── core/                  # 核心模块
-│   ├── models.py          # 数据模型定义
-│   ├── registry.py        # 服务注册表
-│   ├── routers.py         # 问题路由器
-│   └── workflow.py        # 主工作流
+├── core/
+│   ├── models.py               # AnalysisRequest / AnalysisResult / ProblemType
+│   ├── workflow.py             # 主流程
+│   ├── routers.py              # trace / keyword / KB 路由
+│   ├── registry.py             # 服务注册表
+│   ├── domain_config.py        # config/domains.yaml 加载
+│   └── constants.py            # 阈值、权重、限制
 │
-├── connectors/            # 外部连接器
-│   ├── aliyun_sls.py      # 阿里云日志
-│   └── weknora.py         # WeKnora知识库
+├── adapters/
+│   ├── base.py
+│   ├── go_adapter.py
+│   └── java_adapter.py
 │
-├── config/                # 配置模板
-│   ├── config.yaml.example
-│   └── services.yaml.example
+├── connectors/
+│   ├── aliyun_sls.py
+│   ├── mysql.py
+│   └── weknora.py
 │
-├── knowledge/             # 知识库模板
-│   ├── bug_case_template.md
-│   ├── business_rule_template.md
-│   └── system_doc_template.md
+├── config/
+│   ├── config.yaml.example     # 全局平台配置
+│   ├── domains.yaml            # 多业务域配置
+│   └── services.yaml.example   # 传统服务注册表示例
 │
-└── scripts/               # 工具脚本
-    └── init_registry.py   # 初始化脚本
+├── domains/
+│   ├── go_member/
+│   └── go_order/
+│
+├── skills/
+│   └── BUG_ANALYZER.md         # AI skill 规程
+│
+└── docs/
+    ├── OVERVIEW.md
+    └── bug-reports/
 ```
 
-## 核心组件说明
+## 核心组件
 
-### ServiceRegistry (服务注册表)
+### `AnalysisRequest`
 
-存储: 业务关键词 → 服务名 → 仓库地址
+输入模型，支持：
 
-索引:
-- keyword_index: 关键词 → 服务列表
-- db_table_index: 数据库表 → 服务列表
+- 问题描述：`error_desc`
+- 定位范围：`domain`、`repo_path`、`related_repos`
+- 运行时证据：`trace_id`、`time_range`
+- 逻辑偏差证据：`expected_behavior`、`actual_behavior`
+- 变更上下文：`changed_files`、`base_branch`
 
-### CompositeRouter (组合路由器)
+### `CompositeRouter`
 
-策略:
-1. LogRouter: traceId → 日志调用链 → 服务列表
-2. KeywordRouter: 问题描述 → 关键词 → 服务匹配
-3. KnowledgeBaseRouter: 问题描述 → WeKnora → 服务提取
+组合路由器按证据合并结果：
 
-合并: 按置信度加权，低于阈值询问用户
+- `LogRouter`：traceId → 调用链 → 主服务。
+- `KeywordRouter`：问题描述 → 业务关键词 → 服务注册表。
+- `KnowledgeBaseRouter`：问题描述 → WeKnora 文档 → 服务名。
 
-### WeKnoraConnector (知识库连接器)
+显式传入 `repo_path` 时，路由结果会被覆盖，直接分析该仓库。
 
-功能:
-- search_knowledge: 知识检索
-- agent_chat: Agent问答（ReAct推理）
-- upload_text: 上传文档（保存案例）
+### `WeKnoraConnector`
 
-### BugAnalysisWorkflow (主工作流)
+保留的知识库证据源：
 
-入口: analyze(request)
+- `search_knowledge`：检索历史案例、业务规则、系统文档。
+- `agent_chat` / `knowledge_chat`：需要时做知识库问答。
+- `upload_text`：高置信度结果沉淀为 Bug 案例。
 
-流程: 路由 → 预处理 → 知识增强 → 分析 → 验证 → 保存
+调用入口：
 
-## 使用示例
+- `BugAnalysisWorkflow._search_similar_cases`
+- `BugAnalysisWorkflow._save_case`
+- `KnowledgeBaseRouter.route`
 
-```python
-from core.workflow import BugAnalysisWorkflow
-from core.models import AnalysisRequest, BugAnalysisConfig
+### `AliyunSLSConnector`
 
-# 配置
-config = BugAnalysisConfig(
-    registry_path="config/services.yaml",
-    weknora_base_url="http://localhost:8080/api/v1",
-    weknora_api_key="sk-xxx",
-    weknora_kb_ids={
-        "bug_cases": "kb-001",
-        "business_rules": "kb-002",
-        "system_docs": "kb-003"
-    }
-)
+保留的日志证据源：
 
-# 初始化
-workflow = BugAnalysisWorkflow(config)
+- `extract_trace_chain(trace_id)`：按 traceId 还原服务调用链。
+- `find_error_events(time_range, keywords)`：按时间窗口和关键词查询错误事件。
+- `query_logs(...)`：底层日志查询接口。
 
-# 分析
-result = workflow.analyze(
-    AnalysisRequest(
-        error_desc="订单支付成功后状态仍显示待支付",
-        trace_id="abc123"  # 可选
-    )
-)
+调用入口：
 
-# 结果
-print(result.root_cause)
-print(result.code_locations)  # [CodeLocation(file="OrderService.java", line=245)]
-print(result.fix_suggestion)
+- `LogRouter.route`
+- `BugAnalysisWorkflow._get_logs`
+- `BugAnalysisWorkflow._get_call_chain_from_trace`
+- `BugAnalysisWorkflow._analyze_cross_service`
+
+### `BugAnalysisWorkflow`
+
+主入口 `analyze(request)`：
+
+1. 校验输入。
+2. 文本分类和基础设施短路。
+3. 路由仓库。
+4. 获取变更文件、解析代码、查询日志。
+5. 搜索历史案例。
+6. AI 分析或 fallback。
+7. 验证位置并可选保存案例。
+
+### `LanguageAdapter`
+
+统一代码模型：
+
+- `GoAdapter`：函数、调用、error handling、DB 操作、外部调用。
+- `JavaAdapter`：方法、异常处理、DB 操作、HTTP/RPC 调用。
+
+当前 TypeScript/Python 可以被文本识别，但尚未有完整 adapter。
+
+## 输出兼容策略
+
+默认 CLI JSON 保持：
+
+```json
+{
+  "problem_type": "logic_error",
+  "confidence": 0.7,
+  "root_cause": "...",
+  "code_locations": [],
+  "fix_suggestion": "..."
+}
 ```
 
-## 下一步实现
+内部可以扩展 `thinking`、`references`、`timeline`、`matched_cases`，但默认不强迫上层消费。
 
-### Phase 1: MVP
+## 使用层级
 
-- [ ] 完善代码解析器（Java）
-- [ ] 实现阿里云SLS连接器
-- [ ] 完善堆栈分析器
-- [ ] 单元测试
+### L0: 无外部依赖
 
-### Phase 2: 多语言
+只有 `--repo` 和问题描述：
 
-- [ ] Go适配器
-- [ ] TypeScript适配器
-- [ ] 数据链分析器
+- 可解析代码。
+- 可识别堆栈行。
+- 可生成低到中置信度结论。
 
-### Phase 3: 知识增强
+### L1: 业务域配置
 
-- [ ] WeKnora Agent集成
-- [ ] 逻辑推理分析器
-- [ ] 自动保存案例
+增加 `--domain` 或 `config/domains.yaml`：
 
-### Phase 4: 生产化
+- 限定服务集合。
+- 提升关键词路由准确性。
+- 可以查业务表、API、规则。
 
-- [ ] 错误处理完善
-- [ ] 性能优化
-- [ ] CI/CD集成
+### L2: 运行时证据（SLS）
+
+增加 SLS / traceId / time_range：
+
+- 还原调用链。
+- 定位错误服务。
+- 构建事件时间线。
+
+### L3: 知识库和 AI（WeKnora）
+
+增加 WeKnora / AI API：
+
+- 查历史案例。
+- 对业务规则、代码、日志做综合推理。
+- 高置信度结果可沉淀回案例库。
+
+## 后续演进
+
+- 补 TypeScript/Python adapter。
+- 增强 code location verification，让 `verified` 更可信。
+- 增加测试覆盖：CLI 参数、文本分类、AI response parse、路由合并。
+- 将 evidence level 写入扩展字段，但不破坏现有输出。

@@ -1,0 +1,102 @@
+# ============================================================
+# go_member 域 — 业务规则配置
+# 当问题描述命中 trigger_keywords 中任一词时，对应规则会被注入 LogicInferenceAnalyzer
+# 此文件只对 go_member 域生效，不影响其他业务域
+# ============================================================
+
+rule_sets:
+
+  - name: go_member_member_type
+    trigger_keywords:
+      - 会员类型
+      - MemberType
+      - memberType
+      - type=14
+      - WeComFreeUpgrade
+      - 新会员
+    rules:
+      - name: 会员类型覆盖规则
+        condition: 新增会员类型
+        expected_result: 所有与会员类型相关的判断分支均需同步更新
+        priority: 3
+      - name: precheck 覆盖规则
+        condition: preCheckIpSensitiveCity
+        expected_result: 覆盖所有需要检查的会员类型
+        priority: 3
+      - name: CheckIntercept 覆盖规则
+        condition: CheckIntercept
+        expected_result: 覆盖所有需要拦截的会员类型
+        priority: 3
+      - name: getRedirectUrl 路由规则
+        condition: getRedirectUrl
+        expected_result: switch-case 覆盖所有会员类型，无 default 空返回
+        priority: 3
+
+  - name: go_member_sensitive
+    trigger_keywords:
+      - 敏感
+      - sensitive
+      - Sensitive
+      - 敏感城市
+      - 敏感地区
+      - precheck
+      - PreCheck
+    rules:
+      - name: 敏感地区检查规则
+        condition: 用户购买或领取会员
+        expected_result: 所有受限会员类型都需通过敏感城市/地区检查
+        priority: 3
+      - name: 身份证前缀规则
+        condition: verifyIdCardWithSensitiveCity
+        expected_result: 前缀列表按从长到短顺序排列，精确匹配优先于短前缀
+        priority: 3
+
+  - name: go_member_withhold
+    trigger_keywords:
+      - 代扣
+      - 扣款
+      - withhold
+      - Withhold
+      - WithholdTask
+    rules:
+      - name: 代扣失败回退规则
+        condition: 代扣执行失败
+        expected_result: withhold_task.state 更新为 retry，不得保持 paying
+        priority: 3
+      - name: 代扣事务规则
+        condition: Process 函数执行
+        expected_result: 代扣操作在事务内，失败时触发 Rollback
+        priority: 3
+
+  - name: go_member_returnurl
+    trigger_keywords:
+      - redirect
+      - Redirect
+      - returnUrl
+      - ReturnUrl
+      - 跳转
+      - 重定向
+    rules:
+      - name: 跳转 URL 路由覆盖规则
+        condition: getRedirectUrl 触发
+        expected_result: switch-case 覆盖所有会员类型，无 default 空返回
+        priority: 3
+
+  - name: go_member_pay_callback
+    trigger_keywords:
+      - 支付成功
+      - 支付失败
+      - 没回调
+      - 没回
+      - 未开通
+      - 没有开通
+      - DispatchMemberEquity
+    rules:
+      - name: 支付回调事务一致性规则
+        condition: 支付回调处理（PaySuccess/PayZeroAmountSuccess）
+        expected_result: 会员权益派发失败时必须回滚事务，订单不得标记为支付成功
+        priority: 3
+      - name: 回调错误处理规则
+        condition: processDispatchOrder 函数执行
+        expected_result: DispatchMemberEquity 返回 error 时必须 return 终止流程，不得仅打日志后继续执行
+        priority: 3

@@ -6,6 +6,8 @@ import re
 from typing import List, Optional
 from pathlib import Path
 
+CODE_SNIPPET_MAX_CHARS = 2000
+
 try:
     import tree_sitter_java as tsjava
     from tree_sitter import Language, Parser
@@ -132,13 +134,13 @@ class JavaAdapter(LanguageAdapter):
             error_handling=error_handling,
             db_operations=db_operations,
             external_calls=external_calls,
-            code_snippet=source[node.start_byte:node.end_byte].decode()[:500]
+            code_snippet=source[node.start_byte:node.end_byte].decode()[:CODE_SNIPPET_MAX_CHARS]
         )
     
     def _parse_with_regex(self, file_path: str) -> List[ParsedFunction]:
         """正则表达式备用解析（无 tree-sitter 时）"""
         
-        content = Path(file_path).read_text()
+        content = Path(file_path).read_text(errors="replace")
         functions = []
         
         # 匹配方法定义
@@ -182,7 +184,7 @@ class JavaAdapter(LanguageAdapter):
                 error_handling=self._extract_error_handling(body),
                 db_operations=self._extract_db_operations(body),
                 external_calls=self._extract_external_calls(body),
-                code_snippet=body[:500]
+                code_snippet=body
             ))
         
         return functions
@@ -268,7 +270,7 @@ class JavaAdapter(LanguageAdapter):
     def parse_class(self, file_path: str) -> List[ParsedClass]:
         """解析类定义"""
         
-        content = Path(file_path).read_text()
+        content = Path(file_path).read_text(errors="replace")
         classes = []
         
         class_pattern = r'''
@@ -347,8 +349,8 @@ class JavaAdapter(LanguageAdapter):
                 # Service/Mapper 本身可能是业务层
                 if pattern in class_name and pattern != 'Entity':
                     return True
-        
-        return False
+
+        return True  # 保守放行：不确定时默认是业务代码（与 Go 适配器一致）
     
     def _extract_imports(self, file_path: Path) -> List[str]:
         """提取 import 语句"""

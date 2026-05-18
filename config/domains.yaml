@@ -1,0 +1,80 @@
+# Multi-Business-Line Configuration
+#
+# 设计目的：
+# - domain = 一个业务域，限制路由范围并提供业务关键词。
+# - repos = 本地代码仓库路径，CLI 可通过 --domain 或 --all-domains 自动发现。
+# - keywords / tables / apis = 证据增强，不改变 AnalysisResult 输出 schema。
+#
+# path: 本地代码路径 (local checkout)
+# url:  Git 仓库地址 (remote origin)
+
+domains:
+  go_member:
+    display: 会员权益服务
+    database: go_member
+    repos:
+      - path: /Users/renhongliang/Downloads/开发代码库/go_member
+        language: go
+        url: https://code.qschou.com/health/go_member.git
+      - path: ~/dev-workspace/go_equity_package
+        language: go
+        url: https://code.qschou.com/health/go_equity_package.git
+    dependencies: []
+    keywords:
+      - 会员
+      - member
+      - Member
+      - 代扣
+      - withhold
+      - 开通
+      - 权益
+      - 支付
+      - callback
+      - 团险
+      - equity
+      - 权益包
+      - 保险
+    tables:
+      - member
+      - member_info
+      - withhold_task
+      - member_order
+      - equity_package
+      - package_order
+      - package_entrust
+    apis:
+      - /api/member/buy
+      - /api/member/receive
+      - /api/member/check
+      - /api/equity/buy
+      - /api/equity/callback
+      - /api/equity/check
+
+  go_order:
+    display: 订单服务
+    database: go_order
+    repos:
+      - path: /Users/renhongliang/Downloads/开发代码库/go_order
+        language: go
+        url: https://code.qschou.com/health/go_order.git
+    dependencies:
+      - go_member
+    keywords:
+      - 订单
+      - order
+      - Order
+      - 支付
+      - pay
+      - 退款
+      - refund
+      - 优惠券
+      - coupon
+    tables:
+      - orders
+      - order_items
+      - payments
+      - refunds
+    apis:
+      - /api/order/create
+      - /api/order/pay
+      - /api/order/cancel

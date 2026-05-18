@@ -115,6 +115,9 @@ def load_registry_from_yaml(path: str) -> ServiceRegistry:
             dependencies=svc.get("dependencies", []),
             db_tables=svc.get("db_tables", []),
             api_endpoints=svc.get("api_endpoints", []),
+            team=svc.get("team", ""),
+            owner=svc.get("owner", ""),
+            docs_url=svc.get("docs_url", ""),
         ))
     
     return registry
@@ -133,6 +136,10 @@ def save_registry_to_yaml(registry: ServiceRegistry, path: str):
             "keywords": info.keywords,
             "dependencies": info.dependencies,
             "db_tables": info.db_tables,
+            "api_endpoints": info.api_endpoints,
+            "team": info.team,
+            "owner": info.owner,
+            "docs_url": info.docs_url,
         })
     
     yaml.dump({"services": services}, Path(path).open("w"))

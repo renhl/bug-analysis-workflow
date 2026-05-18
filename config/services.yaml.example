@@ -1,5 +1,8 @@
-# 服务注册表配置模板
-# 请根据你的实际服务修改
+# 传统服务注册表配置模板
+#
+# 新项目推荐优先使用 config/domains.yaml；本文件保留给 registry_path
+# 单注册表模式。字段会被 ServiceRegistry 加载，并用于关键词路由、
+# 跨服务依赖推断和 repo 定位。
 
 services:
   # ====================================
@@ -87,3 +90,14 @@ services:
   # - name: user-service
   #   repo_url: git@github.com:your-org/user-service.git
   #   keywords: [用户, 登录]
+
+# ====================================
+# Multi-domain support
+# ====================================
+# 推荐：
+#   config/domains.yaml
+#
+# 兼容：
+#   domains/<domain>/domain.yaml
+#   domains/<domain>/services.yaml
+#   domains/<domain>/rules.yaml

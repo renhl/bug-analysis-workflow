@@ -1,0 +1,29 @@
+services:
+  - name: go_order
+    repo_url: /Users/renhongliang/Downloads/开发代码库/go_order
+    language: go
+    keywords:
+      - 订单
+      - order
+      - Order
+      - 支付
+      - pay
+      - Pay
+      - 退款
+      - refund
+      - 优惠券
+      - coupon
+      - 发货
+      - ship
+    dependencies:
+      - go_member
+    db_tables:
+      - orders
+      - order_items
+      - payments
+      - refunds
+    api_endpoints:
+      - /api/order/create
+      - /api/order/pay
+      - /api/order/cancel
+      - /api/order/refund

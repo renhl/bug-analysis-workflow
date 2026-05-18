@@ -1,0 +1,9 @@
+name: go_order
+description: 订单服务
+database_key: go_order
+owner: order-team
+enabled: true
+weknora_kb_ids:
+  bug_cases: ""
+  business_rules: ""
+  system_docs: ""

@@ -15,6 +15,7 @@ except ImportError:
 
 from .base import LanguageAdapter, ParsedFunction, ParsedClass
 from core.models import FileModel
+from core.constants import GO_STDLIB
 
 
 class GoAdapter(LanguageAdapter):
@@ -52,29 +53,39 @@ class GoAdapter(LanguageAdapter):
     def _parse_with_regex(self, file_path: str) -> List[ParsedFunction]:
         """正则解析 Go 函数"""
         
-        content = Path(file_path).read_text()
+        content = Path(file_path).read_text(errors="replace")
         functions = []
         
-        # Go 函数定义: func name(params) (returns) { body }
-        func_pattern = r'''
-            func\s+
-            (?:(\w+)\.)?       # 方法所属类型（可选）
-            (\w+)\s*           # 函数名
-            \(([^)]*)\)\s*     # 参数
-            (?:\(([^)]*)\))?   # 返回值（可选）
-            \{                 # 函数体开始
-        '''
+        # Go 函数定义，支持四种格式：
+        #   func Name(params) {
+        #   func Name(params) returnType {
+        #   func Name(params) (returnType1, returnType2) {
+        #   func (recv RecvType) Name(params) returnType {
+        #
+        # 分两步：先找 func 关键字和函数名，再向前扫描找 {
+        func_pattern = re.compile(
+            r'func\s+'
+            r'(?:\(\s*\w*\s+\*?\w+\s*\)\s+)?'   # 方法接收者 (recv Type)（可选）
+            r'(\w+)\s*'                            # 函数名（group 1）
+            r'\(([^)]*)\)\s*'                      # 参数列表（group 2）
+            r'((?:\([^)]*\)|\w[\w.*\[\],\s]*)?)\s*'  # 返回类型（可选，group 3）
+            r'\{',                                  # 函数体开始
+            re.MULTILINE
+        )
         
-        for match in re.finditer(func_pattern, content, re.VERBOSE | re.MULTILINE):
-            receiver = match.group(1)  # 方法接收者
-            name = match.group(2)
-            params_str = match.group(3)
-            returns_str = match.group(4) or ""
+        for match in func_pattern.finditer(content):
+            name = match.group(1)
+            params_str = match.group(2)
+            returns_str = match.group(3) or ""
+            
+            # 跳过非函数关键字（if/for/switch 等不用 func）
+            if name in ('if', 'for', 'switch', 'select', 'go', 'defer'):
+                continue
             
             # 计算行号
             start_line = content[:match.start()].count('\n') + 1
             
-            # 找到函数体结束
+            # 找到函数体结束（花括号计数）
             brace_count = 1
             pos = match.end()
             while brace_count > 0 and pos < len(content):
@@ -92,10 +103,9 @@ class GoAdapter(LanguageAdapter):
             for param in params_str.split(','):
                 param = param.strip()
                 if param:
-                    # Go 参数格式: name type 或 type
                     parts = param.split()
                     if len(parts) >= 2:
-                        parameters.append(parts[-1])  # 类型
+                        parameters.append(parts[-1])
                     elif len(parts) == 1:
                         parameters.append(parts[0])
             
@@ -104,8 +114,7 @@ class GoAdapter(LanguageAdapter):
             if return_type.startswith('(') and return_type.endswith(')'):
                 return_type = return_type[1:-1].strip()
             
-            # 提取函数体信息
-            full_name = f"{receiver}.{name}" if receiver else name
+            full_name = name
             
             functions.append(ParsedFunction(
                 name=full_name,
@@ -117,21 +126,18 @@ class GoAdapter(LanguageAdapter):
                 error_handling=self._extract_error_handling(body),
                 db_operations=self._extract_db_operations(body),
                 external_calls=self._extract_external_calls(body),
-                code_snippet=body[:500]
+                code_snippet=body
             ))
         
         return functions
     
     def _parse_with_tree_sitter(self, file_path: str) -> List[ParsedFunction]:
-        """使用 tree-sitter 解析"""
-        
-        source = Path(file_path).read_bytes()
-        tree = self.parser.parse(source)
-        
-        functions = []
-        
+        """使用 tree-sitter 解析。当前退化到正则，因为 tree-sitter-go 未安装。"""
+
+        if self.parser is None:
+            return self._parse_with_regex(file_path)
+
         # TODO: 实现完整的 tree-sitter 解析
-        # 当前退化到正则
         return self._parse_with_regex(file_path)
     
     def _extract_calls_from_body(self, body: str) -> List[str]:
@@ -143,7 +149,7 @@ class GoAdapter(LanguageAdapter):
             pkg = match.group(1)
             func = match.group(2)
             # 排除内置包
-            if pkg not in ['fmt', 'log', 'strings', 'strconv', 'json', 'time', 'context', 'errors']:
+            if pkg not in GO_STDLIB:
                 calls.append(f"{pkg}.{func}")
         
         for match in re.finditer(r'(\w+)\s*\([^)]*\)', body):
@@ -234,7 +240,7 @@ class GoAdapter(LanguageAdapter):
     def parse_class(self, file_path: str) -> List[ParsedClass]:
         """解析 Go struct（相当于类）"""
         
-        content = Path(file_path).read_text()
+        content = Path(file_path).read_text(errors="replace")
         classes = []
         
         # Go struct 定义
@@ -351,7 +357,7 @@ class GoAdapter(LanguageAdapter):
                     entry_points.append(func.name)
                 
                 # 或者有 HTTP 调用的函数
-                if 'http.' in func.code_snippet:
+                if func.code_snippet and 'http.' in func.code_snippet:
                     entry_points.append(func.name)
         
         return entry_points

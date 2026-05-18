@@ -6,6 +6,13 @@ import re
 from typing import List, Dict, Optional
 from .models import RouteResult, AnalysisRequest
 from .registry import ServiceRegistry
+from .constants import (
+    KEYWORD_ROUTE_BASE_CONFIDENCE, KEYWORD_ROUTE_PER_KEYWORD_BONUS,
+    KEYWORD_ROUTE_MAX_CONFIDENCE, TRACE_ROUTE_CONFIDENCE,
+    KB_ROUTE_CONFIDENCE, ROUTE_MERGE_BONUS, RELATED_REPO_WEIGHT,
+    MAX_RELATED_REPOS, TRACE_ROUTE_THRESHOLD,
+    CONFIDENCE_LOW_THRESHOLD,
+)
 
 
 class KeywordRouter:
@@ -54,7 +61,7 @@ class KeywordRouter:
         # Step 6: 计算置信度
         if repositories:
             max_score = repositories[0][2]
-            confidence = min(0.5 + max_score * 0.15, 0.85)
+            confidence = min(KEYWORD_ROUTE_BASE_CONFIDENCE + max_score * KEYWORD_ROUTE_PER_KEYWORD_BONUS, KEYWORD_ROUTE_MAX_CONFIDENCE)
         else:
             confidence = 0.0
         
@@ -70,6 +77,8 @@ class KeywordRouter:
         提取业务关键词
         """
         keywords = []
+        if not desc:
+            return keywords
         desc_lower = desc.lower()
         
         # 直接匹配注册表中的关键词
@@ -138,7 +147,7 @@ class LogRouter:
         return RouteResult(
             primary_repo=primary_repo,
             related_repos=related_repos,
-            confidence=0.95,  # traceId 路由置信度最高
+            confidence=TRACE_ROUTE_CONFIDENCE,  # traceId 路由置信度最高
             call_chain=call_chain
         )
     
@@ -187,13 +196,16 @@ class KnowledgeBaseRouter:
             return RouteResult(confidence=0.0)
         
         kb_ids = kb_ids or []
-        
+
         # Step 1: 搜索系统架构文档
-        system_docs = self.weknora.search_knowledge(
-            query=problem_desc,
-            kb_ids=kb_ids,
-            top_k=3
-        )
+        try:
+            system_docs = self.weknora.search_knowledge(
+                query=problem_desc,
+                kb_ids=kb_ids,
+                top_k=3
+            )
+        except Exception:
+            return RouteResult(confidence=0.0)
         
         # Step 2: 从文档中提取服务名
         services = self._extract_services_from_docs(system_docs)
@@ -211,7 +223,7 @@ class KnowledgeBaseRouter:
         return RouteResult(
             primary_repo=primary_repo,
             related_repos=related_repos,
-            confidence=0.85,
+            confidence=KB_ROUTE_CONFIDENCE,
             knowledge_context={"system_docs": system_docs}
         )
     
@@ -254,20 +266,23 @@ class CompositeRouter:
         # 策略1: 如果有 traceId，优先用日志路由（最准确）
         if request.trace_id:
             result = self.log_router.route(request.trace_id)
-            if result.confidence > 0.9:
+            if result.confidence > TRACE_ROUTE_THRESHOLD:
                 return result
         
-        # 筇略2: 关键词路由
+        # 策略2: 关键词路由
         keyword_result = self.keyword_router.route(request.error_desc)
-        
-        # 筇略3: 知识库路由
-        kb_result = self.kb_router.route(request.error_desc, kb_ids)
-        
-        # 筇略4: 合并结果
+
+        # 策略3: 知识库路由
+        try:
+            kb_result = self.kb_router.route(request.error_desc, kb_ids)
+        except Exception:
+            kb_result = RouteResult(confidence=0.0)
+
+        # 策略4: 合并结果
         merged = self._merge_results(keyword_result, kb_result)
-        
-        # 筇略5: 如果仍有不确定性，生成问题
-        if merged.confidence < 0.5 or not merged.primary_repo:
+
+        # 策略5: 如果仍有不确定性，生成问题
+        if merged.confidence < CONFIDENCE_LOW_THRESHOLD or not merged.primary_repo:
             merged.needs_user_input = True
             merged.question = self._generate_question(merged)
         
@@ -284,12 +299,12 @@ class CompositeRouter:
         if r1.primary_repo:
             repo_scores[r1.primary_repo] = repo_scores.get(r1.primary_repo, 0) + r1.confidence
         for repo in r1.related_repos:
-            repo_scores[repo] = repo_scores.get(repo, 0) + r1.confidence * 0.5
+            repo_scores[repo] = repo_scores.get(repo, 0) + r1.confidence * RELATED_REPO_WEIGHT
         
         if r2.primary_repo:
             repo_scores[r2.primary_repo] = repo_scores.get(r2.primary_repo, 0) + r2.confidence
         for repo in r2.related_repos:
-            repo_scores[repo] = repo_scores.get(repo, 0) + r2.confidence * 0.5
+            repo_scores[repo] = repo_scores.get(repo, 0) + r2.confidence * RELATED_REPO_WEIGHT
         
         # 排序
         sorted_repos = sorted(
@@ -302,13 +317,14 @@ class CompositeRouter:
         primary_repo = sorted_repos[0][0] if sorted_repos else None
         related_repos = [r[0] for r in sorted_repos[1:]] if len(sorted_repos) > 1 else []
         
-        # 合置信度
-        confidence = (r1.confidence + r2.confidence) / 2 + 0.1
+        # 合置信度（两方都为 0 时跳过 bonus，避免虚假信号）
+        base = (r1.confidence + r2.confidence) / 2
+        confidence = base + ROUTE_MERGE_BONUS if base > 0 else 0.0
         confidence = min(confidence, 1.0)
         
         return RouteResult(
             primary_repo=primary_repo,
-            related_repos=related_repos[:5],  # 最多5个关联仓库
+            related_repos=related_repos[:MAX_RELATED_REPOS],  # 最多 MAX_RELATED_REPOS 个关联仓库
             confidence=confidence,
             matched_keywords=r1.matched_keywords,
             knowledge_context=r2.knowledge_context

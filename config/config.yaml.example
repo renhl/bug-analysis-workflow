@@ -1,23 +1,67 @@
-# Bug Analysis Workflow 配置模板
-# 请复制此文件并修改
+# ============================================================
+# Bug Analysis Workflow - 全局平台配置模板
+#
+# 使用方式：
+#   cp config/config.yaml.example config/config.yaml
+#   # 然后编辑 config/config.yaml 填入真实密钥
+#   # config/config.yaml 已加入 .gitignore，不会提交
+#
+# 业务域可以用两种方式维护：
+#   1) 推荐：config/domains.yaml，一个文件维护所有域和仓库
+#   2) 兼容：domains/<域名>/ 目录模式
+#
+# 目录模式文件：
+#   domains/<domain>/domain.yaml   - 域元信息（引用 database_key）
+#   domains/<domain>/services.yaml - 服务/仓库注册表
+#   domains/<domain>/rules.yaml    - Type-C 逻辑推理规则
+# ============================================================
 
 # ====================================
-# 服务注册表（必填）
+# WeKnora 知识库（平台级全局配置）
+#
+# 所有业务域默认共用这里的 KB ID。
+# 若某个业务域需要独立 KB，在 domains/<domain>/domain.yaml
+# 中添加 weknora_kb_ids 字段覆盖对应 key 即可。
 # ====================================
-registry_path: config/services.yaml
-
-# ====================================
-# WeKnora 知识库（推荐）
-# ====================================
-weknora_base_url: http://localhost:8080/api/v1
+weknora_base_url: https://your-weknora-host/api/v1
 weknora_api_key: sk-your-api-key
 weknora_kb_ids:
-  bug_cases: kb-00000001       # 历史 Bug 案例知识库
-  business_rules: kb-00000002  # 业务规则知识库
-  system_docs: kb-00000003     # 系统架构文档知识库
+  bug_cases: ""        # 历史 Bug 案例知识库 ID（留空则不使用）
+  business_rules: ""   # 业务规则知识库 ID（留空则不使用）
+  system_docs: ""      # 系统架构文档知识库 ID（留空则不使用）
 
 # ====================================
-# 阿里云 SLS 日志（可选）
+# 多业务线数据库配置
+#
+# key = 业务域名（与 domains/<domain>/domain.yaml 中的 database_key 对应）
+# 每条记录代表一个独立的业务线数据库连接
+# ====================================
+databases:
+  # 示例：go_member 业务线数据库
+  go_member:
+    host: your-mysql-host
+    port: 3306
+    user: your-db-user
+    password: your-db-password
+    db_name: your-db-name
+
+  # 示例：java_order 业务线数据库（按需扩展）
+  # java_order:
+  #   host: your-order-db-host
+  #   port: 3306
+  #   user: your-db-user
+  #   password: your-db-password
+  #   db_name: order_db
+
+# ====================================
+# 阿里云 SLS 日志
+#
+# 保留为正式证据源：
+# - traceId 路由和跨服务调用链
+# - time_range + keywords 错误日志查询
+# - 数据/业务异常的运行时佐证
+#
+# 未配置时 workflow 会降级，但不会删除这条分析链路。
 # ====================================
 # sls_access_key: your-access-key
 # sls_secret: your-secret
@@ -25,17 +69,24 @@ weknora_kb_ids:
 # sls_project: your-project
 
 # ====================================
-# 数据库（可选）
-# ====================================
-# db_host: localhost
-# db_port: 3306
-# db_user: root
-# db_password: your-password
-# db_name: your-database
-
-# ====================================
 # 分析配置
 # ====================================
 confidence_threshold: 0.5      # 路由置信度阈值，低于此值会询问用户
 max_related_repos: 5           # 最大关联仓库数量
 enable_auto_save_case: true    # 自动保存分析结果为知识库案例
+
+# ====================================
+# AI Analysis Configuration
+# 输出 schema 保持 AnalysisResult 兼容；AI 只负责增强 root_cause /
+# code_locations / fix_suggestion / confidence。
+# ====================================
+# Enable AI-powered analysis (fallback to low-confidence guidance on failure)
+ai_enabled: false
+# Anthropic API key (or set ANTHROPIC_API_KEY env var)
+anthropic_api_key: ""
+# Model to use for analysis
+ai_model: "claude-sonnet-4-20250514"
+# Timeout in seconds
+ai_timeout: 30
+# Write context for skill fallback if AI API fails
+ai_fallback_to_skill: true

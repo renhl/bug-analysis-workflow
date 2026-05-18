@@ -45,3 +45,22 @@ config/services.yaml
 *.log
 temp/
 cache/
+
+# Test files (domain-specific, not committed)
+test_*.py
+tests/
+
+# Example/demo scripts (not committed)
+scripts/
+
+# Virtual environments (alternative names)
+.venv/
+
+# OS
+.DS_Store
+
+# Claude Code agent settings
+.claude/
+
+# Local output
+output/

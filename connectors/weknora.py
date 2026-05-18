@@ -6,6 +6,7 @@ import httpx
 import json
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from core.models import DEFAULT_AGENT_ID
 
 
 @dataclass
@@ -13,7 +14,7 @@ class WeKnoraConfig:
     """WeKnora 配置"""
     base_url: str       # http://your-weknora:8080/api/v1
     api_key: str        # sk-xxxxx
-    default_agent_id: str = "builtin-smart-reasoning"
+    default_agent_id: str = DEFAULT_AGENT_ID
 
 
 class WeKnoraConnector:
@@ -92,17 +93,20 @@ class WeKnoraConnector:
                     title: str,
                     metadata: Dict = None) -> Dict:
         """
-        上传文本内容
-        
+        上传文本内容（直接发布，不停留在草稿）
+
         用于保存 Bug 案例文档
         """
+        body: Dict = {
+            "title": title,
+            "content": content,
+            "status": "publish",
+        }
+        if metadata:
+            body["metadata"] = metadata
         response = self.client.post(
             f"/knowledge-bases/{kb_id}/knowledge/manual",
-            json={
-                "title": title,
-                "content": content,
-                "metadata": metadata
-            }
+            json=body,
         )
         return response.json()
     
@@ -124,34 +128,75 @@ class WeKnoraConnector:
     
     # ========== 知识搜索 ==========
     
+    def list_documents(self, kb_id: str, page_size: int = 100) -> List[str]:
+        """返回知识库中所有文档的 ID 列表"""
+        resp = self.client.get(
+            f"/knowledge-bases/{kb_id}/knowledge",
+            params={"page": 1, "page_size": page_size},
+        )
+        items = resp.json().get("data", [])
+        return [item["id"] for item in items if isinstance(item, dict) and item.get("id")]
+
     def search_knowledge(self,
                          query: str,
                          kb_ids: List[str] = None,
                          knowledge_ids: List[str] = None,
                          top_k: int = 5) -> List[Dict]:
         """
-        在知识库中搜索
-        
-        不经过 LLM 总结，直接返回检索结果
-        
+        在知识库中语义搜索
+
+        WeKnora API 实测：/knowledge-search 用 knowledge_ids（文档 ID）可返回结果，
+        用 knowledge_base_ids 会返回空。因此当只传 kb_ids 时，先把 KB 内所有文档 ID
+        列出来再搜索。
+
         Args:
             query: 查询文本
-            kb_ids: 知识库 ID 列表
-            knowledge_ids: 指定文件 ID 列表
+            kb_ids: 知识库 ID 列表（自动展开成 knowledge_ids）
+            knowledge_ids: 直接指定文档 ID 列表（优先）
             top_k: 返回结果数量
         """
-        payload = {
+        # 把 kb_ids 展开成 knowledge_ids
+        all_doc_ids: List[str] = list(knowledge_ids or [])
+        if kb_ids and not knowledge_ids:
+            for kb_id in kb_ids:
+                all_doc_ids.extend(self.list_documents(kb_id))
+
+        if not all_doc_ids:
+            return []
+
+        payload: Dict = {
             "query": query,
-            "top_k": top_k
+            "knowledge_ids": all_doc_ids,
+            "top_k": top_k,
         }
-        
-        if kb_ids:
-            payload["knowledge_base_ids"] = kb_ids
-        if knowledge_ids:
-            payload["knowledge_ids"] = knowledge_ids
-        
+
         response = self.client.post("/knowledge-search", json=payload)
-        return response.json().get("data", {}).get("results", [])
+        raw = response.json()
+        data = raw.get("data", [])
+        # 兼容两种格式：直接列表 or {"results": [...]}
+        if isinstance(data, dict):
+            return data.get("results", [])
+        return data if isinstance(data, list) else []
+
+    def search_by_keyword(self,
+                          keyword: str,
+                          kb_id: str = None,
+                          limit: int = 10,
+                          offset: int = 0) -> List[Dict]:
+        """
+        按关键词检索文档列表（标题 / 内容文本匹配）
+
+        GET /knowledge/search?keyword=...&limit=...&offset=...
+        可选 kb_id 筛选特定知识库
+        """
+        params = {"keyword": keyword, "limit": str(limit), "offset": str(offset)}
+        if kb_id:
+            params["knowledge_base_id"] = kb_id
+        from urllib.parse import urlencode
+        response = self.client.get(f"/knowledge/search?{urlencode(params)}")
+        raw = response.json()
+        data = raw.get("data", [])
+        return data if isinstance(data, list) else []
     
     # ========== Agent 问答 ==========
     
